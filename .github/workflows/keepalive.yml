@@ -1,0 +1,21 @@
+# GitHub жария репозиторийде 60 күн белсенділік болмаса, кесте бойынша іске қосуды
+# өшіреді. Бұл workflow апта сайын оларды қайта қосып тұрады.
+name: Keepalive
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow enable threads-scraper.yml --repo "$GITHUB_REPOSITORY"
+          gh workflow enable keepalive.yml --repo "$GITHUB_REPOSITORY"

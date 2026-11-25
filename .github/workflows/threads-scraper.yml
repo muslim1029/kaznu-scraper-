@@ -1,0 +1,47 @@
+# Threads скрапері: әр 10 минут сайын жаңа аккаунтпен Threads іздеуін оқып,
+# табылған жазбаларды Cloudflare ботына жібереді. Компьютер керек емес.
+name: Threads Scraper
+
+on:
+  schedule:
+    - cron: "2-59/10 * * * *"    # әр 10 минут (аккаунт бұғатталмауы үшін тым жиі емес)
+  workflow_dispatch: {}          # «Run workflow» батырмасымен қолмен іске қосу
+
+permissions:
+  contents: read
+
+concurrency:
+  group: threads-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Браузерді кэштен алу
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-v1
+
+      - name: Орнату
+        working-directory: scraper
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Threads-ті оқу және ботқа жіберу
+        working-directory: scraper
+        env:
+          THREADS_COOKIES: ${{ secrets.THREADS_COOKIES }}
+          INGEST_URL: ${{ secrets.INGEST_URL }}
+          INGEST_KEY: ${{ secrets.INGEST_KEY }}
+          QUERIES: ${{ vars.QUERIES }}
+        run: node threads_scraper.mjs
