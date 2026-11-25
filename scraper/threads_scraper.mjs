@@ -129,13 +129,42 @@ async function isLoginWall(page) {
   });
 }
 
+// Кирилл әріптері үшін \w жарамайды — сондықтан \S* (бос орыннан басқа кез келген таңба)
+const RECENT_RE = /^\s*(recent|latest|недавн\S*|последн\S*|новые|свеж\S*|соңғы\S*|жаңа\S*)\s*$/iu;
+
+/** Беттегі қойынды/батырма атаулары (тек қысқа UI жазулары — жазба мәтіндері емес) */
+async function uiLabels(page) {
+  return page.evaluate(() => {
+    const out = [];
+    for (const el of document.querySelectorAll('[role="tab"], [role="button"], a[role="link"], a[href*="search"]')) {
+      const t = (el.innerText || el.getAttribute("aria-label") || "").trim().replace(/\s+/g, " ");
+      if (t && t.length <= 20 && !out.includes(t)) out.push(t);
+      if (out.length >= 25) break;
+    }
+    return out;
+  });
+}
+
 async function clickRecentTab(page) {
-  try {
-    const tab = page.getByRole("tab", { name: /recent|недавн|соңғы|новые|latest/i }).first();
-    if (await tab.count()) { await tab.click({ timeout: 3000 }); await sleep(2500); return; }
-    const link = page.getByText(/^(Recent|Недавние|Соңғы|Новые|Latest)$/i).first();
-    if (await link.count()) { await link.click({ timeout: 3000 }); await sleep(2500); }
-  } catch (_) { /* қойынды болмауы мүмкін — «Top» нәтижелерімен жалғастырамыз */ }
+  // 1) role=tab, 2) кез келген қысқа мәтінді элемент — «Recent / Недавние / Последние / Соңғы»
+  const candidates = [
+    page.getByRole("tab", { name: RECENT_RE }),
+    page.getByRole("link", { name: RECENT_RE }),
+    page.getByRole("button", { name: RECENT_RE }),
+    page.getByText(RECENT_RE),
+  ];
+  for (const loc of candidates) {
+    try {
+      const el = loc.first();
+      if (await el.count()) {
+        const label = (await el.innerText().catch(() => "")).trim();
+        await el.click({ timeout: 4000 });
+        await sleep(3000);
+        return label || "?";
+      }
+    } catch (_) { /* келесісін байқаймыз */ }
+  }
+  return null;
 }
 
 export async function searchQuery(page, q, { scrolls = 3 } = {}) {
@@ -143,7 +172,9 @@ export async function searchQuery(page, q, { scrolls = 3 } = {}) {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
   await page.waitForSelector('a[href*="/post/"], input[type="password"]', { timeout: 20000 }).catch(() => {});
   if (await isLoginWall(page)) return { loginRequired: true, posts: [] };
-  await clickRecentTab(page);
+  const recent = await clickRecentTab(page);
+  if (!recent) console.log(`  «Соңғы» қойындысы табылмады. Беттегі батырмалар: ${JSON.stringify(await uiLabels(page))}`);
+  else console.log(`  «${recent}» қойындысы таңдалды`);
   for (let i = 0; i < scrolls; i++) {
     await page.mouse.wheel(0, 2500);
     await sleep(jitter(1200, 2200));
@@ -157,6 +188,8 @@ export async function searchQuery(page, q, { scrolls = 3 } = {}) {
     permalink: `https://www.threads.com/@${r.username}/post/${r.code}`,
     query: q,
   })).filter((p) => p.text);
+  const newest = posts.map((p) => p.timestamp).filter(Boolean).sort().pop() || "—";
+  console.log(`  ең жаңа жазба уақыты: ${newest}`);
   return { loginRequired: false, posts };
 }
 
