@@ -1,0 +1,9 @@
+{
+  "name": "kaznu-threads-scraper",
+  "private": true,
+  "type": "module",
+  "description": "ҚазҰУ туралы Threads жазбаларын оқып, Cloudflare ботына жіберетін скрапер",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}
