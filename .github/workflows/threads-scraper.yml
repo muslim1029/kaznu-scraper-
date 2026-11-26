@@ -45,3 +45,5 @@ jobs:
           INGEST_KEY: ${{ secrets.INGEST_KEY }}
           QUERIES: ${{ vars.QUERIES }}
         run: node threads_scraper.mjs
+
+        
