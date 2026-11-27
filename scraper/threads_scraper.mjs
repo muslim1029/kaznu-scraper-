@@ -246,6 +246,11 @@ export async function readFollowingFeed(page, { minutes = 25, maxScrolls = 15 } 
   if (await isLoginWall(page)) return { loginRequired: true, posts: [] };
   const landed = new URL(page.url()).pathname;
   if (landed !== "/" && await page.locator('a[href*="/post/"]').count()) how = landed;
+  else if (landed === "/following") {
+    // Бет бар, бірақ жазба жоқ — аккаунт әлі ешкімге жазылмаған (немесе олар соңғы кезде жазбаған)
+    console.log("  «Подписки» лентасы бос — скрапер аккаунты ҚазҰУ туралы жазатындарға жазылуы керек (/authors)");
+    return { loginRequired: false, posts: [], found: true };
+  }
   if (!how) {
     if (landed !== "/") {
       await page.goto(`${baseUrl()}/`, { waitUntil: "domcontentloaded", timeout: 45000 });
