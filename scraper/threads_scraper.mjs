@@ -218,25 +218,48 @@ const FEED_STEMS = ["казну", "казгу", "қазұу", "қазну", "қ�
   "ұлттық университет", "национальный университет", "national university"];
 export const feedRelevant = (t) => { const low = String(t || "").toLowerCase(); return FEED_STEMS.some((x) => low.includes(x)); };
 
-export async function readFollowingFeed(page, { minutes = 25, maxScrolls = 15 } = {}) {
-  let how = null;
-  await page.goto(`${baseUrl()}/following`, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
-  await page.waitForSelector('a[href*="/post/"], input[type="password"]', { timeout: 20000 }).catch(() => {});
-  if (await isLoginWall(page)) return { loginRequired: true, posts: [] };
-  if (await page.locator('a[href*="/post/"]').count()) how = "/following";
-  if (!how) {
-    await page.goto(`${baseUrl()}/`, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForSelector('a[href*="/post/"]', { timeout: 20000 }).catch(() => {});
-    for (const loc of [page.getByRole("tab", { name: FOLLOWING_RE }), page.getByRole("link", { name: FOLLOWING_RE }),
-      page.getByRole("button", { name: FOLLOWING_RE }), page.getByText(FOLLOWING_RE)]) {
+const FORYOU_RE = /^\s*(for you|для вас|сіз үшін|сізге)\s*$/iu;
+
+/** Көрінетін (жасырын емес) бірінші элементті басу */
+async function clickVisible(page, re) {
+  for (const loc of [page.getByRole("tab", { name: re }), page.getByRole("menuitem", { name: re }),
+    page.getByRole("link", { name: re }), page.getByRole("button", { name: re }), page.getByText(re)]) {
+    const n = Math.min(await loc.count().catch(() => 0), 6);
+    for (let i = 0; i < n; i++) {
+      const el = loc.nth(i);
       try {
-        const el = loc.first();
-        if (await el.count()) { await el.click({ timeout: 4000 }); await sleep(3000); how = "қойынды"; break; }
+        if (!(await el.isVisible())) continue;
+        await el.click({ timeout: 4000 });
+        await sleep(2500);
+        return true;
       } catch (_) { /* келесісі */ }
     }
   }
+  return false;
+}
+
+export async function readFollowingFeed(page, { minutes = 25, maxScrolls = 15 } = {}) {
+  let how = null;
+  const saved = process.env.FEED_URL;                     // табылған мекенжай (міндетті емес)
+  await page.goto(saved || `${baseUrl()}/following`, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+  await page.waitForSelector('a[href*="/post/"], input[type="password"]', { timeout: 15000 }).catch(() => {});
+  if (await isLoginWall(page)) return { loginRequired: true, posts: [] };
+  const landed = new URL(page.url()).pathname;
+  if (landed !== "/" && await page.locator('a[href*="/post/"]').count()) how = landed;
   if (!how) {
-    console.log(`  «Подписки» лентасы табылмады. Беттегі батырмалар: ${JSON.stringify(await uiLabels(page))}`);
+    if (landed !== "/") {
+      await page.goto(`${baseUrl()}/`, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.waitForSelector('a[href*="/post/"]', { timeout: 20000 }).catch(() => {});
+    }
+    if (await clickVisible(page, FOLLOWING_RE)) how = "батырма";
+    else if (await clickVisible(page, FORYOU_RE) && await clickVisible(page, FOLLOWING_RE)) how = "мәзір";
+    if (how) {
+      await page.waitForSelector('a[href*="/post/"]', { timeout: 15000 }).catch(() => {});
+      console.log(`  «Подписки» ашылды (${how}), мекенжайы: ${new URL(page.url()).pathname}${new URL(page.url()).search}`);
+    }
+  }
+  if (!how) {
+    console.log(`  «Подписки» лентасы табылмады (${landed}). Беттегі батырмалар: ${JSON.stringify(await uiLabels(page))}`);
     return { loginRequired: false, posts: [], found: false };
   }
   // Алдыңғы тексеруден бергі барлық жазбаны көру үшін — соңғы {minutes} минуттан ескі жазбаға жеткенше айналдырамыз
