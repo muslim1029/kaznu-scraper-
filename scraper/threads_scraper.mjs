@@ -210,6 +210,54 @@ export async function searchQuery(page, q, { scrolls = 3, top = true } = {}) {
   return { loginRequired: false, posts };
 }
 
+/* ---------------- «Подписки» лентасы ---------------- */
+// Жазылған аккаунттардың жаңа жазбалары лентада БІРДЕН көрінеді (іздеу индексін күтпейді).
+const FOLLOWING_RE = /^\s*(following|подписки|жазылымдар|жазылулар|жазылғандар)\s*$/iu;
+// Лентадағы мыңдаған жазбаның ішінен ҚазҰУ-ға қатыстыларын ғана ботқа жібереміз (дәл сүзгі — Cloudflare-де)
+const FEED_STEMS = ["казну", "казгу", "қазұу", "қазну", "қазму", "kaznu", "kazgu", "фараби",
+  "ұлттық университет", "национальный университет", "national university"];
+export const feedRelevant = (t) => { const low = String(t || "").toLowerCase(); return FEED_STEMS.some((x) => low.includes(x)); };
+
+export async function readFollowingFeed(page, { minutes = 25, maxScrolls = 15 } = {}) {
+  let how = null;
+  await page.goto(`${baseUrl()}/following`, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+  await page.waitForSelector('a[href*="/post/"], input[type="password"]', { timeout: 20000 }).catch(() => {});
+  if (await isLoginWall(page)) return { loginRequired: true, posts: [] };
+  if (await page.locator('a[href*="/post/"]').count()) how = "/following";
+  if (!how) {
+    await page.goto(`${baseUrl()}/`, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForSelector('a[href*="/post/"]', { timeout: 20000 }).catch(() => {});
+    for (const loc of [page.getByRole("tab", { name: FOLLOWING_RE }), page.getByRole("link", { name: FOLLOWING_RE }),
+      page.getByRole("button", { name: FOLLOWING_RE }), page.getByText(FOLLOWING_RE)]) {
+      try {
+        const el = loc.first();
+        if (await el.count()) { await el.click({ timeout: 4000 }); await sleep(3000); how = "қойынды"; break; }
+      } catch (_) { /* келесісі */ }
+    }
+  }
+  if (!how) {
+    console.log(`  «Подписки» лентасы табылмады. Беттегі батырмалар: ${JSON.stringify(await uiLabels(page))}`);
+    return { loginRequired: false, posts: [], found: false };
+  }
+  // Алдыңғы тексеруден бергі барлық жазбаны көру үшін — соңғы {minutes} минуттан ескі жазбаға жеткенше айналдырамыз
+  const limit = Date.now() - minutes * 60 * 1000;
+  let raw = [];
+  for (let i = 0; i <= maxScrolls; i++) {
+    raw = await page.evaluate(extractPostsInPage);
+    const times = raw.map((r) => Date.parse(r.timestamp)).filter((x) => !Number.isNaN(x));
+    if (times.length && Math.min(...times) < limit) break;
+    await page.mouse.wheel(0, 3000);
+    await sleep(jitter(1200, 2000));
+  }
+  const times = raw.map((r) => r.timestamp).filter(Boolean).sort();
+  const posts = raw.map((r) => ({
+    id: "web:" + r.code, username: r.username, text: cleanText(r.rawText, r.username), timestamp: r.timestamp,
+    permalink: `https://www.threads.com/@${r.username}/post/${r.code}`, query: "Подписки",
+  })).filter((p) => p.text && feedRelevant(p.text + " " + p.username));
+  console.log(`  «Подписки» (${how}): ${raw.length} жазба оқылды, ${times[0] || "—"} … ${times.at(-1) || "—"}; ҚазҰУ-ға қатысты: ${posts.length}`);
+  return { loginRequired: false, posts, found: true };
+}
+
 /* ---------------- негізгі ---------------- */
 async function postIngest(body) {
   const url = process.env.INGEST_URL, key = process.env.INGEST_KEY;
@@ -236,7 +284,13 @@ export async function main() {
   const all = new Map();
   let status = "ok", message = "";
   try {
-    for (const q of queries) {
+    if (process.env.FEED !== "0") {                 // алдымен ең жылдам жол — «Подписки» лентасы
+      const res = await readFollowingFeed(page);
+      if (res.loginRequired) { status = "login_required"; message = "login wall on feed"; }
+      for (const p of res.posts) all.set(p.id, p);
+      await sleep(jitter(2000, 4000));
+    }
+    for (const q of status === "ok" ? queries : []) {
       const res = await searchQuery(page, q);
       if (res.loginRequired) { status = "login_required"; message = `login wall on "${q}"`; break; }
       for (const p of res.posts) if (!all.has(p.id)) all.set(p.id, p);
