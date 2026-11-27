@@ -167,7 +167,7 @@ async function clickRecentTab(page) {
   return null;
 }
 
-export async function searchQuery(page, q, { scrolls = 3, top = true } = {}) {
+export async function searchQuery(page, q, { scrolls = 3, top = process.env.TOP === "1" } = {}) {
   const base = `${baseUrl()}/search?q=${encodeURIComponent(q)}&serp_type=default`;
   // 1) «Үздік/Топ» (әдепкі бет): тез тарап жатқан жазбалар — лайк/пікір жинаған жағымсыз жазба осында ерте шығады
   // 2) «Соңғы»: хронологиялық тізім
