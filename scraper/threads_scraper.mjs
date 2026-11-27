@@ -16,7 +16,7 @@ import { chromium } from "playwright";
 import { pathToFileURL } from "node:url";
 
 const baseUrl = () => (process.env.BASE_URL || "https://www.threads.com").replace(/\/$/, "");
-const DEFAULT_QUERIES = ["КазНУ", "ҚазҰУ", "KazNU"];
+const DEFAULT_QUERIES = ["КазНУ", "ҚазҰУ", "KazNU", "КазГУ"];
 
 /* ---------------- cookies ---------------- */
 const SAME_SITE = { no_restriction: "None", none: "None", lax: "Lax", strict: "Strict" };
@@ -167,19 +167,36 @@ async function clickRecentTab(page) {
   return null;
 }
 
-export async function searchQuery(page, q, { scrolls = 3 } = {}) {
-  const url = `${baseUrl()}/search?q=${encodeURIComponent(q)}&serp_type=default&filter=recent`;
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+export async function searchQuery(page, q, { scrolls = 3, top = true } = {}) {
+  const base = `${baseUrl()}/search?q=${encodeURIComponent(q)}&serp_type=default`;
+  // 1) «Үздік/Топ» (әдепкі бет): тез тарап жатқан жазбалар — лайк/пікір жинаған жағымсыз жазба осында ерте шығады
+  // 2) «Соңғы»: хронологиялық тізім
+  await page.goto(top ? base : base + "&filter=recent", { waitUntil: "domcontentloaded", timeout: 45000 });
   await page.waitForSelector('a[href*="/post/"], input[type="password"]', { timeout: 20000 }).catch(() => {});
   if (await isLoginWall(page)) return { loginRequired: true, posts: [] };
+  const raw = [];
+  if (top) {
+    await page.mouse.wheel(0, 2500);
+    await sleep(jitter(1200, 2000));
+    const topRaw = await page.evaluate(extractPostsInPage);
+    const tNew = topRaw.map((r) => r.timestamp).filter(Boolean).sort().pop() || "—";
+    console.log(`  «Үздік»: ${topRaw.length} жазба, ең жаңасы: ${tNew}`);
+    raw.push(...topRaw);
+  }
   const recent = await clickRecentTab(page);
-  if (!recent) console.log(`  «Соңғы» қойындысы табылмады. Беттегі батырмалар: ${JSON.stringify(await uiLabels(page))}`);
-  else console.log(`  «${recent}» қойындысы таңдалды`);
+  if (!recent) {
+    console.log(`  «Соңғы» қойындысы табылмады. Беттегі батырмалар: ${JSON.stringify(await uiLabels(page))}`);
+    if (top) {                                    // сілтемедегі filter=recent арқылы қайта байқаймыз
+      await page.goto(base + "&filter=recent", { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.waitForSelector('a[href*="/post/"]', { timeout: 20000 }).catch(() => {});
+    }
+  } else console.log(`  «${recent}» қойындысы таңдалды`);
   for (let i = 0; i < scrolls; i++) {
     await page.mouse.wheel(0, 2500);
     await sleep(jitter(1200, 2200));
   }
-  const raw = await page.evaluate(extractPostsInPage);
+  const seenCodes = new Set(raw.map((r) => r.code));
+  for (const r of await page.evaluate(extractPostsInPage)) if (!seenCodes.has(r.code)) { seenCodes.add(r.code); raw.push(r); }
   const posts = raw.map((r) => ({
     id: "web:" + r.code,
     username: r.username,
