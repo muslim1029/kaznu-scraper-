@@ -248,7 +248,13 @@ export async function readFollowingFeed(page, { minutes = 25, maxScrolls = 15 } 
   if (landed !== "/" && await page.locator('a[href*="/post/"]').count()) how = landed;
   else if (landed === "/following") {
     // Бет бар, бірақ жазба жоқ — аккаунт әлі ешкімге жазылмаған (немесе олар соңғы кезде жазбаған)
-    console.log("  «Подписки» лентасы бос — скрапер аккаунты ҚазҰУ туралы жазатындарға жазылуы керек (/authors)");
+    const info = await page.evaluate(() => {
+      const body = (document.body && document.body.innerText) || "";
+      return { title: document.title.slice(0, 80), len: body.length,
+        missing: /isn.t available|недоступн|не найден|табылмады|қолжетімсіз|page not found/i.test(body) };
+    }).catch(() => ({}));
+    console.log(`  «Подписки» лентасы бос — бет: «${info.title}», мәтін ұзындығы ${info.len}, ` +
+      `${info.missing ? "БЕТ ЖОҚ (мекенжай қате)" : "бет бар"}; батырмалар: ${JSON.stringify(await uiLabels(page))}`);
     return { loginRequired: false, posts: [], found: true };
   }
   if (!how) {
