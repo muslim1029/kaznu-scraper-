@@ -318,7 +318,11 @@ export async function main() {
       for (const p of res.posts) all.set(p.id, p);
       await sleep(jitter(2000, 4000));
     }
-    for (const q of status === "ok" ? queries : []) {
+    // Лента әр іске қосылғанда оқылады, ал іздеу — шамамен әр 6 минутта бір рет (аккаунтқа жүктеме аз болсын)
+    const every = Number(process.env.SEARCH_EVERY_MIN || 6);
+    const doSearch = process.env.FEED === "0" || !every || Math.floor(Date.now() / 60000) % every < Math.ceil(every / 2);
+    if (!doSearch) console.log("Іздеу бұл жолы өткізілді (тек лента оқылды)");
+    for (const q of status === "ok" && doSearch ? queries : []) {
       const res = await searchQuery(page, q);
       if (res.loginRequired) { status = "login_required"; message = `login wall on "${q}"`; break; }
       for (const p of res.posts) if (!all.has(p.id)) all.set(p.id, p);
